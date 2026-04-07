@@ -1,0 +1,244 @@
+> # INSTALL PACKAGES (run once only)
+> # ─────────────────────────────────────────
+> # install.packages(c("quantmod", "lmtest", "sandwich", "car", "tseries"))
+> 
+> # ─────────────────────────────────────────
+> # LOAD LIBRARIES
+> # ─────────────────────────────────────────
+> library(quantmod)
+Loading required package: xts
+Loading required package: zoo
+
+Attaching package: ‘zoo’
+
+The following objects are masked from ‘package:base’:
+
+    as.Date, as.Date.numeric
+
+Loading required package: TTR
+Registered S3 method overwritten by 'quantmod':
+  method            from
+  as.zoo.data.frame zoo 
+> library(lmtest)
+> library(sandwich)
+> library(car)
+Loading required package: carData
+> library(tseries)
+
+    ‘tseries’ version: 0.10-61
+
+    ‘tseries’ is a package for time series analysis and computational finance.
+
+    See ‘library(help="tseries")’ for details.
+> 
+> # ─────────────────────────────────────────
+> # DOWNLOAD ALL DATA AUTOMATICALLY
+> # ─────────────────────────────────────────
+> start <- as.Date("2023-01-01")
+> end   <- as.Date("2026-03-31")
+> 
+> # Divi's Laboratories stock (NSE)
+> getSymbols("DIVISLAB.NS", src = "yahoo", from = start, to = end)
+[1] "DIVISLAB.NS"
+> 
+> # Nifty 50 index
+> getSymbols("^NSEI", src = "yahoo", from = start, to = end)
+[1] "NSEI"
+Warning message:
+^NSEI contains missing values. Some functions will not work if objects contain missing values in the middle of the series. Consider using na.omit(), na.approx(), na.fill(), etc to remove or replace them. 
+> 
+> # Exchange rates
+> getSymbols("USDINR=X", src = "yahoo", from = start, to = end)
+[1] "USDINR=X"
+Warning message:
+USDINR=X contains missing values. Some functions will not work if objects contain missing values in the middle of the series. Consider using na.omit(), na.approx(), na.fill(), etc to remove or replace them. 
+> getSymbols("EURINR=X", src = "yahoo", from = start, to = end)
+[1] "EURINR=X"
+Warning message:
+EURINR=X contains missing values. Some functions will not work if objects contain missing values in the middle of the series. Consider using na.omit(), na.approx(), na.fill(), etc to remove or replace them. 
+> getSymbols("GBPINR=X", src = "yahoo", from = start, to = end)
+[1] "GBPINR=X"
+Warning message:
+GBPINR=X contains missing values. Some functions will not work if objects contain missing values in the middle of the series. Consider using na.omit(), na.approx(), na.fill(), etc to remove or replace them. 
+> 
+> # ─────────────────────────────────────────
+> # EXTRACT CLOSING PRICES ONLY
+> # ─────────────────────────────────────────
+> divislab <- Cl(DIVISLAB.NS)
+> nifty    <- Cl(NSEI)
+> usdinr   <- Cl(`USDINR=X`)
+> eurinr   <- Cl(`EURINR=X`)
+> gbpinr   <- Cl(`GBPINR=X`)
+> 
+> # ─────────────────────────────────────────
+> # CALCULATE DAILY LOG RETURNS
+> # ─────────────────────────────────────────
+> r_divislab <- dailyReturn(divislab, type = "log")
+> r_nifty    <- dailyReturn(nifty,    type = "log")
+Warning message:
+In to_period(xx, period = on.opts[[period]], ...) :
+  missing values removed from data
+> r_usd      <- dailyReturn(usdinr,   type = "log")
+Warning message:
+In to_period(xx, period = on.opts[[period]], ...) :
+  missing values removed from data
+> r_eur      <- dailyReturn(eurinr,   type = "log")
+Warning message:
+In to_period(xx, period = on.opts[[period]], ...) :
+  missing values removed from data
+> r_gbp      <- dailyReturn(gbpinr,   type = "log")
+Warning message:
+In to_period(xx, period = on.opts[[period]], ...) :
+  missing values removed from data
+> 
+> # ─────────────────────────────────────────
+> # MERGE ALL INTO ONE DATAFRAME
+> # ─────────────────────────────────────────
+> df <- merge(r_divislab, r_nifty, r_usd, r_eur, r_gbp)
+> colnames(df) <- c("r_divislab", "r_nifty", 
++                   "r_usd", "r_eur", "r_gbp")
+> df <- na.omit(df)
+> 
+> # ─────────────────────────────────────────
+> # RISK FREE RATE (daily)
+> # ─────────────────────────────────────────
+> df$year <- as.integer(format(index(df), "%Y"))
+> 
+> df$rf <- ifelse(df$year == 2023, 6.80/365/100,
++                 ifelse(df$year == 2024, 6.80/365/100,
++                        6.50/365/100))
+> 
+> # ─────────────────────────────────────────
+> # EXCESS RETURNS
+> # ─────────────────────────────────────────
+> df$STOCKRF <- df$r_divislab - df$rf
+> df$MKRF    <- df$r_nifty    - df$rf
+> 
+> # Convert to dataframe for regression
+> df_reg <- as.data.frame(df)
+> 
+> # ─────────────────────────────────────────
+> # BASELINE REGRESSION
+> # ─────────────────────────────────────────
+> model1 <- lm(STOCKRF ~ MKRF + r_usd + r_eur + r_gbp,
++              data = df_reg)
+> summary(model1)
+
+Call:
+lm(formula = STOCKRF ~ MKRF + r_usd + r_eur + r_gbp, data = df_reg)
+
+Residuals:
+      Min        1Q    Median        3Q       Max 
+-0.128730 -0.008284 -0.000663  0.006603  0.087540 
+
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept)  0.0004776  0.0005939   0.804   0.4216    
+MKRF         0.5661017  0.0755733   7.491 2.06e-13 ***
+r_usd       -0.4056338  0.2160255  -1.878   0.0608 .  
+r_eur        0.0576178  0.1145939   0.503   0.6153    
+r_gbp        0.2388298  0.1428559   1.672   0.0950 .  
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 0.01563 on 703 degrees of freedom
+Multiple R-squared:  0.09217,	Adjusted R-squared:  0.08701 
+F-statistic: 17.84 on 4 and 703 DF,  p-value: 5.784e-14
+
+> 
+> # ─────────────────────────────────────────
+> # DIAGNOSTIC TESTS
+> # ─────────────────────────────────────────
+> 
+> # (a) Serial Correlation
+> bgtest(model1, order = 5)
+
+	Breusch-Godfrey test for serial correlation of order up to 5
+
+data:  model1
+LM test = 5.5805, df = 5, p-value = 0.3492
+
+> 
+> # (b) Heteroscedasticity
+> bptest(model1)
+
+	studentized Breusch-Pagan test
+
+data:  model1
+BP = 3.3245, df = 4, p-value = 0.5051
+
+> 
+> # (c) Multicollinearity
+> vif(model1)
+    MKRF    r_usd    r_eur    r_gbp 
+1.038946 1.101492 1.417276 1.485729 
+> 
+> # (d) Normality of residuals
+> jarque.bera.test(residuals(model1))
+
+	Jarque Bera Test
+
+data:  residuals(model1)
+X-squared = 2342.6, df = 2, p-value < 2.2e-16
+
+> 
+> # ─────────────────────────────────────────
+> # ROBUST STANDARD ERRORS (if needed)
+> # ─────────────────────────────────────────
+> coeftest(model1, vcov = vcovHAC(model1))
+
+t test of coefficients:
+
+               Estimate  Std. Error t value  Pr(>|t|)    
+(Intercept)  0.00047758  0.00059249  0.8061    0.4205    
+MKRF         0.56610169  0.09997835  5.6622 2.178e-08 ***
+r_usd       -0.40563376  0.24876803 -1.6306    0.1034    
+r_eur        0.05761776  0.10376228  0.5553    0.5789    
+r_gbp        0.23882980  0.16507154  1.4468    0.1484    
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+> 
+> # ─────────────────────────────────────────
+> # RESIDUAL PLOTS
+> # ─────────────────────────────────────────
+> par(mfrow = c(2,2))
+> plot(model1)
+> 
+> # ─────────────────────────────────────────
+> # REDUCED MODEL (if GBP insignificant)
+> # ─────────────────────────────────────────
+> model2 <- lm(STOCKRF ~ MKRF + r_usd + r_eur,
++              data = df_reg)
+> summary(model2)
+
+Call:
+lm(formula = STOCKRF ~ MKRF + r_usd + r_eur, data = df_reg)
+
+Residuals:
+      Min        1Q    Median        3Q       Max 
+-0.130585 -0.008233 -0.000605  0.006615  0.088000 
+
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept)  0.0004599  0.0005946   0.773   0.4395    
+MKRF         0.5680537  0.0756605   7.508 1.82e-13 ***
+r_usd       -0.3273693  0.2111608  -1.550   0.1215    
+r_eur        0.1599453  0.0970019   1.649   0.0996 .  
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 0.01565 on 704 degrees of freedom
+Multiple R-squared:  0.08856,	Adjusted R-squared:  0.08468 
+F-statistic:  22.8 on 3 and 704 DF,  p-value: 4.266e-14
+
+> 
+> # Compare models
+> AIC(model1, model2)
+       df       AIC
+model1  6 -3872.721
+model2  5 -3871.912
+> BIC(model1, model2)
+       df       BIC
+model1  6 -3845.346
+model2  5 -3849.100
